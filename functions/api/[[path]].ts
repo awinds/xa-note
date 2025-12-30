@@ -1,4 +1,4 @@
-// Cloudflare Pages API 路由处理
+// Cloudflare Pages API Handler for XA Note
 import { Hono } from 'hono'
 import { handle } from 'hono/cloudflare-pages'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
@@ -7,10 +7,10 @@ import bcrypt from 'bcryptjs'
 import { D1Adapter } from '../../server/db/d1.js'
 import { generateToken, verifyToken, generateSessionId } from '../../server/utils/jwt.js'
 
-// Define the environment and variables types for Hono
 type Bindings = {
-  DB?: any // D1Database type
+  DB?: any
   CLOUDFLARE_ENV?: string
+  JWT_SECRET?: string
 }
 
 type Variables = {
@@ -19,7 +19,6 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
-// 初始化D1数据库适配器
 let dbAdapter: D1Adapter | null = null
 
 function getDatabase(env: Bindings): D1Adapter {
@@ -32,42 +31,7 @@ function getDatabase(env: Bindings): D1Adapter {
   return dbAdapter
 }
 
-// 获取当前环境的基础URL
-function getBaseUrl(c: any): { apiUrl: string, frontendUrl: string } {
-  const host = c.req.header('host') || 'localhost:9915'
-  const protocol = c.req.header('x-forwarded-proto') || 
-                   c.req.header('cf-visitor') ? 'https' : 
-                   (host.includes('localhost') ? 'http' : 'https')
-  
-  // 检查是否是Cloudflare Pages环境
-  const isCloudflarePages = c.env?.CLOUDFLARE_ENV === 'pages' || 
-                           c.req.header('cf-ray') || 
-                           host.includes('.pages.dev')
-  
-  if (isCloudflarePages) {
-    // Cloudflare Pages环境
-    const baseUrl = `${protocol}://${host}`
-    return {
-      apiUrl: baseUrl,
-      frontendUrl: baseUrl
-    }
-  } else if (process.env.NODE_ENV === 'development') {
-    // 开发环境
-    return {
-      apiUrl: 'http://localhost:9915',
-      frontendUrl: 'http://localhost:5173'
-    }
-  } else {
-    // 生产环境（Docker等）
-    const baseUrl = `${protocol}://${host}`
-    return {
-      apiUrl: baseUrl,
-      frontendUrl: baseUrl
-    }
-  }
-}
-
-// 中间件：初始化数据库
+// Middleware: Initialize database
 app.use('*', async (c, next) => {
   const db = getDatabase(c.env)
   try {
@@ -79,7 +43,7 @@ app.use('*', async (c, next) => {
   await next()
 })
 
-// 健康检查
+// Health check
 app.get('/api/health', (c) => {
   return c.json({ 
     status: 'ok', 
@@ -88,7 +52,7 @@ app.get('/api/health', (c) => {
   })
 })
 
-// 安装状态检查
+// Install status check
 app.get('/api/install/status', async (c) => {
   const db = c.get('db') as D1Adapter
   try {
@@ -99,12 +63,11 @@ app.get('/api/install/status', async (c) => {
   }
 })
 
-// 安装接口
+// Install
 app.post('/api/install', async (c) => {
   const db = c.get('db') as D1Adapter
   
   try {
-    // 检查是否已安装
     const isInstalled = await db.isInstalled()
     if (isInstalled) {
       return c.json({ error: 'Already installed' }, 400)
@@ -116,12 +79,10 @@ app.post('/api/install', async (c) => {
       return c.json({ error: 'Missing required fields' }, 400)
     }
 
-    // 加密密码
     const hashedPassword = await bcrypt.hash(adminPassword, 10)
 
-    // 设置基本配置
     const settings = [
-      ['site.name', siteName],
+      ['site.title', siteName],
       ['admin.email', adminEmail],
       ['admin.password', hashedPassword],
       ['system.installed', '1'],
@@ -129,7 +90,7 @@ app.post('/api/install', async (c) => {
     ]
 
     for (const [key, value] of settings) {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, value, Date.now())
+      await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, value, Date.now())
     }
 
     return c.json({ success: true, message: 'Installation completed' })
@@ -139,7 +100,7 @@ app.post('/api/install', async (c) => {
   }
 })
 
-// 登录接口
+// Login
 app.post('/api/login', async (c) => {
   const db = c.get('db') as D1Adapter
   
@@ -150,49 +111,42 @@ app.post('/api/login', async (c) => {
       return c.json({ ok: false, reason: 'missing_credentials' }, 400)
     }
 
-    // 获取管理员信息
-    const adminEmail = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin.email') as any
-    const adminPassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin.password') as any
+    const adminEmail = await db.prepare('SELECT value FROM settings WHERE key = ?').get('admin.email') as any
+    const adminPassword = await db.prepare('SELECT value FROM settings WHERE key = ?').get('admin.password') as any
 
     if (!adminEmail || !adminPassword) {
       return c.json({ ok: false, reason: 'admin_not_configured' }, 500)
     }
 
-    // 验证邮箱
     if (email !== adminEmail.value) {
       return c.json({ ok: false, error: 'email_incorrect' }, 401)
     }
 
-    // 验证密码
     const isValidPassword = await bcrypt.compare(password, adminPassword.value)
     if (!isValidPassword) {
       return c.json({ ok: false, error: 'invalid_credentials' }, 401)
     }
 
-    // 生成JWT token和session ID
     const token = generateToken({
       userId: 'admin',
       email: adminEmail.value,
       role: 'admin'
-    })
+    }, c.env.JWT_SECRET)
     const sessionId = generateSessionId()
 
-    // 设置cookies - Cloudflare Pages 使用 HTTPS
     setCookie(c, 'auth_token', token, {
       httpOnly: true,
       secure: true,
       sameSite: 'Lax',
       path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7天
-      domain: undefined
+      maxAge: 60 * 60 * 24 * 7,
     })
     setCookie(c, 'session_id', sessionId, {
       httpOnly: true,
       secure: true,
       sameSite: 'Lax',
       path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7天
-      domain: undefined
+      maxAge: 60 * 60 * 24 * 7,
     })
 
     return c.json({ ok: true, email: adminEmail.value })
@@ -202,158 +156,7 @@ app.post('/api/login', async (c) => {
   }
 })
 
-/* GitHub OAuth */
-
-app.get('/api/auth/github', async (c) => {
-  const db = c.get('db') as D1Adapter
-  
-  try {
-    const enableGithub = db.prepare('SELECT value FROM settings WHERE key = ?').get('login.enable_github') as any
-    if (!enableGithub || enableGithub.value !== '1') {
-      return c.json({ error: 'GitHub login not enabled' }, 400)
-    }
-
-    const clientIdRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('github.client_id') as any
-    if (!clientIdRow || !clientIdRow.value) {
-      return c.json({ error: 'GitHub client ID not configured' }, 500)
-    }
-
-    const { apiUrl, frontendUrl } = getBaseUrl(c)
-    const redirectUri = `${apiUrl}/api/auth/github/callback`
-    const state = nanoid(32)
-    
-    // 保存 state 和前端URL 到 cookie 用于验证和重定向
-    setCookie(c, 'github_oauth_state', state, {
-      httpOnly: true,
-      maxAge: 600, // 10 分钟
-      path: '/'
-    })
-    
-    setCookie(c, 'github_oauth_frontend', frontendUrl, {
-      httpOnly: true,
-      maxAge: 600, // 10 分钟
-      path: '/'
-    })
-
-    const authUrl = new URL('https://github.com/login/oauth/authorize')
-    authUrl.searchParams.set('client_id', clientIdRow.value)
-    authUrl.searchParams.set('redirect_uri', redirectUri)
-    authUrl.searchParams.set('scope', 'user:email')
-    authUrl.searchParams.set('state', state)
-
-    return c.redirect(authUrl.toString())
-  } catch (error) {
-    console.error('GitHub OAuth init error:', error)
-    return c.json({ error: 'OAuth initialization failed' }, 500)
-  }
-})
-
-app.get('/api/auth/github/callback', async (c) => {
-  const db = c.get('db') as D1Adapter
-  
-  try {
-    const code = c.req.query('code')
-    const state = c.req.query('state')
-    const savedState = getCookie(c, 'github_oauth_state')
-    const frontendUrl = getCookie(c, 'github_oauth_frontend') || getBaseUrl(c).frontendUrl
-
-    if (!code || !state || state !== savedState) {
-      return c.redirect(`${frontendUrl}/login?error=oauth_failed`)
-    }
-
-    // 清除 state 和 frontend URL cookies
-    deleteCookie(c, 'github_oauth_state')
-    deleteCookie(c, 'github_oauth_frontend')
-
-    const clientIdRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('github.client_id') as any
-    const clientSecretRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('github.client_secret') as any
-
-    if (!clientIdRow?.value || !clientSecretRow?.value) {
-      return c.redirect(`${frontendUrl}/login?error=oauth_config`)
-    }
-
-    // 交换 access token
-    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id: clientIdRow.value,
-        client_secret: clientSecretRow.value,
-        code: code,
-      })
-    })
-
-    const tokenData = await tokenResponse.json()
-    
-    if (!tokenData.access_token) {
-      return c.redirect(`${frontendUrl}/login?error=oauth_token`)
-    }
-
-    // 获取用户信息
-    const userResponse = await fetch('https://api.github.com/user', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-        'Accept': 'application/vnd.github.v3+json',
-      }
-    })
-
-    const userData = await userResponse.json()
-
-    // 获取用户邮箱
-    const emailResponse = await fetch('https://api.github.com/user/emails', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-        'Accept': 'application/vnd.github.v3+json',
-      }
-    })
-
-    const emailData = await emailResponse.json()
-    const primaryEmail = emailData.find((email: any) => email.primary)?.email || userData.email
-
-    // 检查是否是管理员邮箱
-    const adminEmailRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin.email') as any
-    if (!adminEmailRow || primaryEmail !== adminEmailRow.value) {
-      return c.redirect(`${frontendUrl}/login?error=email_incorrect`)
-    }
-
-    // 生成JWT token
-    const token = generateToken({
-      userId: 'admin',
-      email: adminEmailRow.value,
-      role: 'admin'
-    })
-
-    // 生成session ID
-    const sessionId = generateSessionId()
-
-    // Cloudflare Pages 使用 HTTPS
-    const cookieOptions = {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'Lax' as const,
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7 天
-      domain: undefined
-    }
-
-    // 设置认证cookies
-    setCookie(c, 'auth_token', token, cookieOptions)
-    setCookie(c, 'session_id', sessionId, cookieOptions)
-
-    // 重定向回前端
-    return c.redirect(`${frontendUrl}/`)
-
-  } catch (error) {
-    console.error('GitHub OAuth callback error:', error)
-    const frontendUrl = getCookie(c, 'github_oauth_frontend') || getBaseUrl(c).frontendUrl
-    return c.redirect(`${frontendUrl}/login?error=oauth_error`)
-  }
-})
-
-// 认证检查
+// Auth check
 app.get('/api/me', async (c) => {
   const token = getCookie(c, 'auth_token')
   const sessionId = getCookie(c, 'session_id')
@@ -362,7 +165,7 @@ app.get('/api/me', async (c) => {
     return c.json({ loggedIn: false, reason: 'missing_cookies' }, 401)
   }
 
-  const payload = verifyToken(token)
+  const payload = verifyToken(token, c.env.JWT_SECRET)
   if (!payload) {
     return c.json({ loggedIn: false, reason: 'invalid_token' }, 401)
   }
@@ -374,14 +177,14 @@ app.get('/api/me', async (c) => {
   })
 })
 
-// 退出登录
+// Logout
 app.post('/api/logout', (c) => {
   deleteCookie(c, 'auth_token', { path: '/' })
   deleteCookie(c, 'session_id', { path: '/' })
   return c.json({ ok: true })
 })
 
-// 获取系统信息
+// System info
 app.get('/api/system/info', async (c) => {
   return c.json({
     name: 'XA Note',
@@ -390,6 +193,332 @@ app.get('/api/system/info', async (c) => {
     database: 'D1',
     timestamp: new Date().toISOString()
   })
+})
+
+// Settings
+app.get('/api/settings', async (c) => {
+  const db = c.get('db') as D1Adapter
+  
+  try {
+    const settings = await db.prepare('SELECT key, value FROM settings').all()
+    const result: Record<string, string> = {}
+    
+    for (const setting of settings) {
+      result[setting.key] = setting.value
+    }
+    
+    return c.json(result)
+  } catch (error) {
+    console.error('Get settings error:', error)
+    return c.json({ error: 'Failed to get settings' }, 500)
+  }
+})
+
+app.post('/api/settings', async (c) => {
+  const db = c.get('db') as D1Adapter
+  
+  try {
+    const settings = await c.req.json()
+    
+    for (const [key, value] of Object.entries(settings)) {
+      await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, value, Date.now())
+    }
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Update settings error:', error)
+    return c.json({ error: 'Failed to update settings' }, 500)
+  }
+})
+
+// Categories
+app.get('/api/categories', async (c) => {
+  const db = c.get('db') as D1Adapter
+  
+  try {
+    const categories = await db.prepare('SELECT * FROM categories ORDER BY name').all()
+    return c.json(categories)
+  } catch (error) {
+    console.error('Get categories error:', error)
+    return c.json({ error: 'Failed to get categories' }, 500)
+  }
+})
+
+app.post('/api/categories', async (c) => {
+  const db = c.get('db') as D1Adapter
+  
+  try {
+    const { name } = await c.req.json()
+    const id = nanoid()
+    
+    await db.prepare('INSERT INTO categories (id, name, created_at) VALUES (?, ?, ?)').run(id, name, Date.now())
+    
+    return c.json({ id, name, created_at: Date.now() })
+  } catch (error) {
+    console.error('Create category error:', error)
+    return c.json({ error: 'Failed to create category' }, 500)
+  }
+})
+
+app.put('/api/categories/:id', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const id = c.req.param('id')
+  
+  try {
+    const { name } = await c.req.json()
+    
+    await db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(name, id)
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Update category error:', error)
+    return c.json({ error: 'Failed to update category' }, 500)
+  }
+})
+
+app.delete('/api/categories/:id', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const id = c.req.param('id')
+  
+  try {
+    // Move notes to default category
+    await db.prepare('UPDATE notes SET category_id = ? WHERE category_id = ?').run('default', id)
+    await db.prepare('DELETE FROM categories WHERE id = ?').run(id)
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Delete category error:', error)
+    return c.json({ error: 'Failed to delete category' }, 500)
+  }
+})
+
+// Notes
+app.get('/api/notes', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const category = c.req.query('category')
+  
+  try {
+    let query = 'SELECT * FROM notes WHERE 1=1'
+    const params: any[] = []
+    
+    if (category && category !== 'all') {
+      query += ' AND category_id = ?'
+      params.push(category)
+    }
+    
+    query += ' ORDER BY updated_at DESC'
+    
+    const notes = await db.prepare(query).all(...params)
+    return c.json(notes)
+  } catch (error) {
+    console.error('Get notes error:', error)
+    return c.json({ error: 'Failed to get notes' }, 500)
+  }
+})
+
+app.post('/api/notes', async (c) => {
+  const db = c.get('db') as D1Adapter
+  
+  try {
+    const { categoryId } = await c.req.json()
+    const id = nanoid()
+    const now = Date.now()
+    
+    await db.prepare('INSERT INTO notes (id, title, content, tags, category_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      id, '', '', '', categoryId, now, now
+    )
+    
+    return c.json({ id, title: '', content: '', tags: '', category_id: categoryId, created_at: now, updated_at: now })
+  } catch (error) {
+    console.error('Create note error:', error)
+    return c.json({ error: 'Failed to create note' }, 500)
+  }
+})
+
+app.put('/api/notes/:id', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const id = c.req.param('id')
+  
+  try {
+    const { title, content, tags, category_id } = await c.req.json()
+    
+    await db.prepare('UPDATE notes SET title = ?, content = ?, tags = ?, category_id = ?, updated_at = ? WHERE id = ?').run(
+      title, content, tags, category_id, Date.now(), id
+    )
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Update note error:', error)
+    return c.json({ error: 'Failed to update note' }, 500)
+  }
+})
+
+app.delete('/api/notes/:id', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const id = c.req.param('id')
+  
+  try {
+    const note = await db.prepare('SELECT * FROM notes WHERE id = ?').get(id) as any
+    if (note) {
+      await db.prepare('INSERT INTO trash (id, title, content, tags, category_id, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        note.id, note.title, note.content, note.tags, note.category_id, note.created_at, note.updated_at, Date.now()
+      )
+      await db.prepare('DELETE FROM notes WHERE id = ?').run(id)
+    }
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Delete note error:', error)
+    return c.json({ error: 'Failed to delete note' }, 500)
+  }
+})
+
+// Search
+app.get('/api/search', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const q = c.req.query('q')
+  
+  if (!q) {
+    return c.json([])
+  }
+  
+  try {
+    const notes = await db.prepare('SELECT * FROM notes WHERE title LIKE ? OR content LIKE ? ORDER BY updated_at DESC').all(`%${q}%`, `%${q}%`)
+    return c.json(notes)
+  } catch (error) {
+    console.error('Search error:', error)
+    return c.json({ error: 'Search failed' }, 500)
+  }
+})
+
+// Shares
+app.post('/api/share/:id', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const noteId = c.req.param('id')
+  
+  try {
+    const { password, expiresAt } = await c.req.json()
+    const shareId = nanoid()
+    
+    await db.prepare('INSERT INTO shares (id, note_id, password, expires_at, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      shareId, noteId, password || null, expiresAt || null, Date.now()
+    )
+    
+    return c.json({ id: shareId })
+  } catch (error) {
+    console.error('Create share error:', error)
+    return c.json({ error: 'Failed to create share' }, 500)
+  }
+})
+
+app.post('/api/share/:code/view', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const code = c.req.param('code')
+  
+  try {
+    const body = await c.req.json()
+    
+    const share = await db.prepare('SELECT * FROM shares WHERE id = ?').get(code) as any
+    if (!share) {
+      return c.json({ error: 'NOT_FOUND' }, 404)
+    }
+    
+    if (share.expires_at && Date.now() > share.expires_at) {
+      return c.json({ error: 'EXPIRED' }, 403)
+    }
+    
+    if (share.password && share.password !== body.password) {
+      return c.json({ error: 'PASSWORD_REQUIRED' }, 401)
+    }
+    
+    const note = await db.prepare('SELECT * FROM notes WHERE id = ?').get(share.note_id)
+    
+    return c.json(note)
+  } catch (error) {
+    console.error('View share error:', error)
+    return c.json({ error: 'Failed to view share' }, 500)
+  }
+})
+
+app.get('/api/shares', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const noteId = c.req.query('note_id')
+  
+  try {
+    let query = 'SELECT * FROM shares WHERE 1=1'
+    const params: any[] = []
+    
+    if (noteId) {
+      query += ' AND note_id = ?'
+      params.push(noteId)
+    }
+    
+    query += ' ORDER BY created_at DESC'
+    
+    const shares = await db.prepare(query).all(...params)
+    return c.json(shares)
+  } catch (error) {
+    console.error('Get shares error:', error)
+    return c.json({ error: 'Failed to get shares' }, 500)
+  }
+})
+
+// Trash
+app.get('/api/trash', async (c) => {
+  const db = c.get('db') as D1Adapter
+  
+  try {
+    const trash = await db.prepare('SELECT * FROM trash ORDER BY deleted_at DESC').all()
+    return c.json(trash)
+  } catch (error) {
+    console.error('Get trash error:', error)
+    return c.json({ error: 'Failed to get trash' }, 500)
+  }
+})
+
+app.post('/api/trash/:id/restore', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const id = c.req.param('id')
+  
+  try {
+    const trashItem = await db.prepare('SELECT * FROM trash WHERE id = ?').get(id) as any
+    if (trashItem) {
+      await db.prepare('INSERT INTO notes (id, title, content, tags, category_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        trashItem.id, trashItem.title, trashItem.content, trashItem.tags, trashItem.category_id, trashItem.created_at, Date.now()
+      )
+      await db.prepare('DELETE FROM trash WHERE id = ?').run(id)
+    }
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Restore from trash error:', error)
+    return c.json({ error: 'Failed to restore from trash' }, 500)
+  }
+})
+
+app.delete('/api/trash/:id', async (c) => {
+  const db = c.get('db') as D1Adapter
+  const id = c.req.param('id')
+  
+  try {
+    await db.prepare('DELETE FROM trash WHERE id = ?').run(id)
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Delete from trash error:', error)
+    return c.json({ error: 'Failed to delete from trash' }, 500)
+  }
+})
+
+app.delete('/api/trash', async (c) => {
+  const db = c.get('db') as D1Adapter
+  
+  try {
+    await db.prepare('DELETE FROM trash').run()
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Clear trash error:', error)
+    return c.json({ error: 'Failed to clear trash' }, 500)
+  }
 })
 
 export const onRequest = handle(app)

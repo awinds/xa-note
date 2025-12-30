@@ -1,121 +1,103 @@
-import Database from 'better-sqlite3'
-import fs from 'fs'
-import path from 'path'
-import { DatabaseAdapter, PreparedStatement } from './types.ts'
-import { DATABASE_SCHEMA, initializeDefaultData } from './schema.ts'
-
-export class SQLiteAdapter implements DatabaseAdapter {
-  private db: Database.Database | null = null
-  private dbPath: string
-  private initialized = false
-
-  constructor() {
-    // 确保data目录存在
-    const dataDir = path.join(process.cwd(), 'data')
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true })
-    }
-    
-    this.dbPath = path.join(dataDir, 'data.db')
-  }
-
-  async initialize(): Promise<void> {
-    if (this.initialized) return
-
-    this.db = new Database(this.dbPath)
-    
-    // 使用共享的数据库schema
-    this.db.exec(DATABASE_SCHEMA)
-
-    // 检查是否是全新数据库（没有任何设置）
-    const existingSettings = this.db.prepare('SELECT COUNT(*) as count FROM settings').get() as any
-    const isNewDatabase = existingSettings.count === 0
-
-    console.log('Database initialization:', { 
-      isNewDatabase, 
-      existingSettingsCount: existingSettings.count 
-    })
-
-    // 使用共享的默认数据初始化函数
-    await initializeDefaultData(this, isNewDatabase)
-
-    console.log(`SQLite database initialized at: ${this.dbPath}`)
-    this.initialized = true
-  }
-
-  exec(sql: string): void {
-    if (!this.db) throw new Error('Database not initialized')
-    this.db.exec(sql)
-  }
-
-  prepare(sql: string): PreparedStatement {
-    if (!this.db) throw new Error('Database not initialized')
-    const stmt = this.db.prepare(sql)
-    
-    return {
-      get(...params: any[]) {
-        return stmt.get(...params)
-      },
-      all(...params: any[]) {
-        return stmt.all(...params)
-      },
-      run(...params: any[]) {
-        const result = stmt.run(...params)
-        return {
-          changes: result.changes,
-          lastInsertRowid: result.lastInsertRowid as number
+import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+import { DATABASE_SCHEMA, initializeDefaultData } from './schema.js';
+export class SQLiteAdapter {
+    db = null;
+    dbPath;
+    initialized = false;
+    constructor() {
+        // 确保data目录存在
+        const dataDir = path.join(process.cwd(), 'data');
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
         }
-      }
+        this.dbPath = path.join(dataDir, 'data.db');
     }
-  }
-
-  isInstalled(): boolean {
-    try {
-      if (!this.initialized) {
-        // For synchronous check, we need to initialize synchronously
-        this.initializeSync()
-      }
-      const result = this.prepare('SELECT value FROM settings WHERE key = ?').get('system.installed') as any
-      return result?.value === '1'
-    } catch (error) {
-      return false
+    async initialize() {
+        if (this.initialized)
+            return;
+        this.db = new Database(this.dbPath);
+        // 使用共享的数据库schema
+        this.db.exec(DATABASE_SCHEMA);
+        // 检查是否是全新数据库（没有任何设置）
+        const existingSettings = this.db.prepare('SELECT COUNT(*) as count FROM settings').get();
+        const isNewDatabase = existingSettings.count === 0;
+        console.log('Database initialization:', {
+            isNewDatabase,
+            existingSettingsCount: existingSettings.count
+        });
+        // 使用共享的默认数据初始化函数
+        await initializeDefaultData(this, isNewDatabase);
+        console.log(`SQLite database initialized at: ${this.dbPath}`);
+        this.initialized = true;
     }
-  }
-
-  private initializeSync(): void {
-    if (this.initialized) return
-
-    this.db = new Database(this.dbPath)
-    
-    // 使用共享的数据库schema
-    this.db.exec(DATABASE_SCHEMA)
-
-    // 检查是否是全新数据库（没有任何设置）
-    const existingSettings = this.db.prepare('SELECT COUNT(*) as count FROM settings').get() as any
-    const isNewDatabase = existingSettings.count === 0
-
-    console.log('Database initialization:', { 
-      isNewDatabase, 
-      existingSettingsCount: existingSettings.count 
-    })
-
-    // 同步版本的默认数据初始化（简化版）
-    if (isNewDatabase) {
-      // 全新数据库，设置默认值但不标记为已安装
-      console.log('Initializing new database with defaults')
-      this.db.prepare(`
+    exec(sql) {
+        if (!this.db)
+            throw new Error('Database not initialized');
+        this.db.exec(sql);
+    }
+    prepare(sql) {
+        if (!this.db)
+            throw new Error('Database not initialized');
+        const stmt = this.db.prepare(sql);
+        return {
+            get(...params) {
+                return stmt.get(...params);
+            },
+            all(...params) {
+                return stmt.all(...params);
+            },
+            run(...params) {
+                const result = stmt.run(...params);
+                return {
+                    changes: result.changes,
+                    lastInsertRowid: result.lastInsertRowid
+                };
+            }
+        };
+    }
+    isInstalled() {
+        try {
+            if (!this.initialized) {
+                // For synchronous check, we need to initialize synchronously
+                this.initializeSync();
+            }
+            const result = this.prepare('SELECT value FROM settings WHERE key = ?').get('system.installed');
+            return result?.value === '1';
+        }
+        catch (error) {
+            return false;
+        }
+    }
+    initializeSync() {
+        if (this.initialized)
+            return;
+        this.db = new Database(this.dbPath);
+        // 使用共享的数据库schema
+        this.db.exec(DATABASE_SCHEMA);
+        // 检查是否是全新数据库（没有任何设置）
+        const existingSettings = this.db.prepare('SELECT COUNT(*) as count FROM settings').get();
+        const isNewDatabase = existingSettings.count === 0;
+        console.log('Database initialization:', {
+            isNewDatabase,
+            existingSettingsCount: existingSettings.count
+        });
+        // 同步版本的默认数据初始化（简化版）
+        if (isNewDatabase) {
+            // 全新数据库，设置默认值但不标记为已安装
+            console.log('Initializing new database with defaults');
+            this.db.prepare(`
         INSERT INTO settings (key, value, updated_at)
         VALUES (?, ?, ?)
-      `).run('language', 'zh', Date.now())
-
-      // 初始化默认分类
-      this.db.prepare(`
+      `).run('language', 'zh', Date.now());
+            // 初始化默认分类
+            this.db.prepare(`
         INSERT INTO categories (id, name, created_at)
         VALUES (?, ?, ?)
-      `).run('default', '默认', Date.now())
-
-      // 初始化默认笔记
-      const noteContent = `# XA Note
+      `).run('default', '默认', Date.now());
+            // 初始化默认笔记
+            const noteContent = `# XA Note
 
 XA Note 是一款**轻量级、可完全自托管的个人笔记系统**，由您自行部署和管理，专为注重**隐私、安全与可控性**的用户设计。系统支持 Markdown 编辑、分类管理、标签系统和全文检索，提供流畅的写作体验与清晰的知识结构。
 
@@ -198,59 +180,51 @@ XA Note 是一款**轻量级、可完全自托管的个人笔记系统**，由�
 - SQLite - 嵌入式数据库
 
 ---
-**XA Note** - 轻量级自托管笔记系统，您的个人知识管理伙伴 🚀`
-
-      this.db.prepare(`
+**XA Note** - 轻量级自托管笔记系统，您的个人知识管理伙伴 🚀`;
+            this.db.prepare(`
         INSERT INTO notes (id, title, content, tags, category_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run('xa-note-welcome', 'XA Note', noteContent, '', 'default', Date.now(), Date.now())
-
-      console.log('Initialized default notes')
-
-      // 初始化默认分享
-      this.db.prepare(`
+      `).run('xa-note-welcome', 'XA Note', noteContent, '', 'default', Date.now(), Date.now());
+            console.log('Initialized default notes');
+            // 初始化默认分享
+            this.db.prepare(`
         INSERT INTO shares (id, note_id, password, expires_at, created_at)
         VALUES (?, ?, ?, ?, ?)
-      `).run('xa-note', 'xa-note-welcome', null, null, Date.now())
-
-      console.log('Initialized default shares')
-    } else {
-      // 现有数据库，检查是否需要添加缺失的默认设置
-      const exists = this.db.prepare('SELECT 1 FROM settings WHERE key=?').get('language')
-      if (!exists) {
-        this.db.prepare(`
+      `).run('xa-note', 'xa-note-welcome', null, null, Date.now());
+            console.log('Initialized default shares');
+        }
+        else {
+            // 现有数据库，检查是否需要添加缺失的默认设置
+            const exists = this.db.prepare('SELECT 1 FROM settings WHERE key=?').get('language');
+            if (!exists) {
+                this.db.prepare(`
           INSERT INTO settings (key, value, updated_at)
           VALUES (?, ?, ?)
-        `).run('language', 'zh', Date.now())
-      }
-
-      // 对于现有的数据库，如果有管理员邮箱但没有安装标记，则标记为已安装
-      const hasAdmin = this.db.prepare('SELECT 1 FROM settings WHERE key=?').get('admin.email')
-      const hasInstalled = this.db.prepare('SELECT 1 FROM settings WHERE key=?').get('system.installed')
-
-      console.log('Existing database check:', { hasAdmin: !!hasAdmin, hasInstalled: !!hasInstalled })
-
-      if (hasAdmin && !hasInstalled) {
-        this.db.prepare(`
+        `).run('language', 'zh', Date.now());
+            }
+            // 对于现有的数据库，如果有管理员邮箱但没有安装标记，则标记为已安装
+            const hasAdmin = this.db.prepare('SELECT 1 FROM settings WHERE key=?').get('admin.email');
+            const hasInstalled = this.db.prepare('SELECT 1 FROM settings WHERE key=?').get('system.installed');
+            console.log('Existing database check:', { hasAdmin: !!hasAdmin, hasInstalled: !!hasInstalled });
+            if (hasAdmin && !hasInstalled) {
+                this.db.prepare(`
           INSERT INTO settings (key, value, updated_at)
           VALUES (?, ?, ?)
-        `).run('system.installed', '1', Date.now())
-        console.log('Marked existing database as installed')
-      }
-
-      // 确保默认分类存在
-      const categoryCount = this.db.prepare('SELECT COUNT(*) as c FROM categories').get() as any
-      if (categoryCount.c === 0) {
-        this.db.prepare(`
+        `).run('system.installed', '1', Date.now());
+                console.log('Marked existing database as installed');
+            }
+            // 确保默认分类存在
+            const categoryCount = this.db.prepare('SELECT COUNT(*) as c FROM categories').get();
+            if (categoryCount.c === 0) {
+                this.db.prepare(`
           INSERT INTO categories (id, name, created_at)
           VALUES (?, ?, ?)
-        `).run('default', '默认', Date.now())
-      }
-
-      // 检查是否需要添加默认笔记（只在没有任何笔记时添加）
-      const noteCount = this.db.prepare('SELECT COUNT(*) as c FROM notes').get() as any
-      if (noteCount.c === 0) {
-        const noteContent = `# XA Note
+        `).run('default', '默认', Date.now());
+            }
+            // 检查是否需要添加默认笔记（只在没有任何笔记时添加）
+            const noteCount = this.db.prepare('SELECT COUNT(*) as c FROM notes').get();
+            if (noteCount.c === 0) {
+                const noteContent = `# XA Note
 
 XA Note 是一款**轻量级、可完全自托管的个人笔记系统**，由您自行部署和管理，专为注重**隐私、安全与可控性**的用户设计。系统支持 Markdown 编辑、分类管理、标签系统和全文检索，提供流畅的写作体验与清晰的知识结构。
 
@@ -333,40 +307,36 @@ XA Note 是一款**轻量级、可完全自托管的个人笔记系统**，由�
 - SQLite - 嵌入式数据库
 
 ---
-**XA Note** - 轻量级自托管笔记系统，您的个人知识管理伙伴 🚀`
-
-        this.db.prepare(`
+**XA Note** - 轻量级自托管笔记系统，您的个人知识管理伙伴 🚀`;
+                this.db.prepare(`
           INSERT INTO notes (id, title, content, tags, category_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run('xa-note-welcome', 'XA Note', noteContent, '', 'default', Date.now(), Date.now())
-
-        console.log('Added default notes to existing database')
-      }
-
-      // 检查是否需要添加默认分享（检查特定的分享ID是否存在）
-      const existingShare = this.db.prepare('SELECT 1 FROM shares WHERE id=?').get('xa-note')
-      if (!existingShare) {
-        // 确保对应的笔记存在
-        const noteExists = this.db.prepare('SELECT 1 FROM notes WHERE id=?').get('xa-note-welcome')
-        if (noteExists) {
-          this.db.prepare(`
+        `).run('xa-note-welcome', 'XA Note', noteContent, '', 'default', Date.now(), Date.now());
+                console.log('Added default notes to existing database');
+            }
+            // 检查是否需要添加默认分享（检查特定的分享ID是否存在）
+            const existingShare = this.db.prepare('SELECT 1 FROM shares WHERE id=?').get('xa-note');
+            if (!existingShare) {
+                // 确保对应的笔记存在
+                const noteExists = this.db.prepare('SELECT 1 FROM notes WHERE id=?').get('xa-note-welcome');
+                if (noteExists) {
+                    this.db.prepare(`
             INSERT INTO shares (id, note_id, password, expires_at, created_at)
             VALUES (?, ?, ?, ?, ?)
-          `).run('xa-note', 'xa-note-welcome', null, null, Date.now())
-          console.log('Added default share: xa-note')
+          `).run('xa-note', 'xa-note-welcome', null, null, Date.now());
+                    console.log('Added default share: xa-note');
+                }
+            }
         }
-      }
+        console.log(`SQLite database initialized at: ${this.dbPath}`);
+        this.initialized = true;
     }
-
-    console.log(`SQLite database initialized at: ${this.dbPath}`)
-    this.initialized = true
-  }
-
-  async close(): Promise<void> {
-    if (this.db) {
-      this.db.close()
-      this.db = null
-      this.initialized = false
+    async close() {
+        if (this.db) {
+            this.db.close();
+            this.db = null;
+            this.initialized = false;
+        }
     }
-  }
 }
+//# sourceMappingURL=sqlite.js.map

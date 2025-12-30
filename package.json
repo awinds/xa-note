@@ -1,5 +1,5 @@
 {
-  "name": "xa-note-pages",
+  "name": "xa-note",
   "version": "1.0.0",
   "description": "XA Note - Cloudflare Pages Deployment",
   "type": "module",

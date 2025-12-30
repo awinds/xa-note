@@ -4,8 +4,8 @@ import { handle } from 'hono/cloudflare-pages'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { nanoid } from 'nanoid'
 import bcrypt from 'bcryptjs'
-import { D1Adapter } from '../../server/db/d1.ts'
-import { generateToken, verifyToken, generateSessionId } from '../../server/utils/jwt.ts'
+import { D1Adapter } from '../../server/db/d1.js'
+import { generateToken, verifyToken, generateSessionId } from '../../server/utils/jwt.js'
 
 type Bindings = {
   DB?: any

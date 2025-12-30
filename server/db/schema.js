@@ -2,7 +2,6 @@
  * 数据库表结构定义
  * 统一管理所有数据库表的创建语句和默认数据
  */
-
 export const DATABASE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -57,33 +56,30 @@ export const DATABASE_SCHEMA = `
     created_at INTEGER NOT NULL
   );
 `;
-
 /**
  * 默认设置配置
  */
-export const DEFAULT_SETTINGS: Record<string, string> = {
-  'language': 'zh'
+export const DEFAULT_SETTINGS = {
+    'language': 'zh'
 };
-
 /**
  * 默认分类数据
  */
 export const DEFAULT_CATEGORIES = [
-  {
-    id: 'default',
-    name: '默认',
-    created_at: () => Date.now()
-  }
+    {
+        id: 'default',
+        name: '默认',
+        created_at: () => Date.now()
+    }
 ];
-
 /**
  * 默认笔记数据
  */
 export const DEFAULT_NOTES = [
-  {
-    id: 'xa-note-welcome',
-    title: 'XA Note',
-    content: `# XA Note
+    {
+        id: 'xa-note-welcome',
+        title: 'XA Note',
+        content: `# XA Note
 
 XA Note 是一款**轻量级、可完全自托管的个人笔记系统**，由您自行部署和管理，专为注重**隐私、安全与可控性**的用户设计。系统支持 Markdown 编辑、分类管理、标签系统和全文检索，提供流畅的写作体验与清晰的知识结构。
 
@@ -167,185 +163,144 @@ XA Note 是一款**轻量级、可完全自托管的个人笔记系统**，由�
 
 ---
 **XA Note** - 轻量级自托管笔记系统，您的个人知识管理伙伴 🚀`,
-    tags: '',
-    category_id: 'default',
-    created_at: () => Date.now(),
-    updated_at: () => Date.now()
-  }
+        tags: '',
+        category_id: 'default',
+        created_at: () => Date.now(),
+        updated_at: () => Date.now()
+    }
 ];
-
 /**
  * 默认分享数据
  */
 export const DEFAULT_SHARES = [
-  {
-    id: 'xa-note',
-    note_id: 'xa-note-welcome',
-    password: null,
-    expires_at: null, // 永不过期
-    created_at: () => Date.now()
-  }
+    {
+        id: 'xa-note',
+        note_id: 'xa-note-welcome',
+        password: null,
+        expires_at: null, // 永不过期
+        created_at: () => Date.now()
+    }
 ];
-
 /**
  * 初始化数据库默认数据
  * @param adapter 数据库适配器
  * @param isNewDatabase 是否为新数据库
  */
-export async function initializeDefaultData(
-  adapter: any,
-  isNewDatabase: boolean
-): Promise<void> {
-  if (isNewDatabase) {
-    // 全新数据库，设置默认值但不标记为已安装
-    console.log('Initializing new database with defaults')
-    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-      await adapter.prepare(`
+export async function initializeDefaultData(adapter, isNewDatabase) {
+    if (isNewDatabase) {
+        // 全新数据库，设置默认值但不标记为已安装
+        console.log('Initializing new database with defaults');
+        for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+            await adapter.prepare(`
         INSERT INTO settings (key, value, updated_at)
         VALUES (?, ?, ?)
-      `).run(key, value, Date.now())
-    }
-
-    // 初始化默认分类
-    for (const category of DEFAULT_CATEGORIES) {
-      await adapter.prepare(`
+      `).run(key, value, Date.now());
+        }
+        // 初始化默认分类
+        for (const category of DEFAULT_CATEGORIES) {
+            await adapter.prepare(`
         INSERT INTO categories (id, name, created_at)
         VALUES (?, ?, ?)
-      `).run(category.id, category.name, category.created_at())
-    }
-
-    // 初始化默认笔记
-    for (const note of DEFAULT_NOTES) {
-      await adapter.prepare(`
+      `).run(category.id, category.name, category.created_at());
+        }
+        // 初始化默认笔记
+        for (const note of DEFAULT_NOTES) {
+            await adapter.prepare(`
         INSERT INTO notes (id, title, content, tags, category_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        note.id,
-        note.title,
-        note.content,
-        note.tags,
-        note.category_id,
-        note.created_at(),
-        note.updated_at()
-      )
-    }
-    console.log('Initialized default notes')
-
-    // 初始化默认分享
-    for (const share of DEFAULT_SHARES) {
-      await adapter.prepare(`
+      `).run(note.id, note.title, note.content, note.tags, note.category_id, note.created_at(), note.updated_at());
+        }
+        console.log('Initialized default notes');
+        // 初始化默认分享
+        for (const share of DEFAULT_SHARES) {
+            await adapter.prepare(`
         INSERT INTO shares (id, note_id, password, expires_at, created_at)
         VALUES (?, ?, ?, ?, ?)
-      `).run(
-        share.id,
-        share.note_id,
-        share.password,
-        share.expires_at,
-        share.created_at()
-      )
+      `).run(share.id, share.note_id, share.password, share.expires_at, share.created_at());
+        }
+        console.log('Initialized default shares');
     }
-    console.log('Initialized default shares')
-  } else {
-    // 现有数据库，检查是否需要添加缺失的默认设置
-    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-      const exists = await adapter.prepare('SELECT 1 FROM settings WHERE key=?').get(key)
-      if (!exists) {
-        await adapter.prepare(`
+    else {
+        // 现有数据库，检查是否需要添加缺失的默认设置
+        for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+            const exists = await adapter.prepare('SELECT 1 FROM settings WHERE key=?').get(key);
+            if (!exists) {
+                await adapter.prepare(`
           INSERT INTO settings (key, value, updated_at)
           VALUES (?, ?, ?)
-        `).run(key, value, Date.now())
-      }
-    }
-
-    // 对于现有的数据库，如果有管理员邮箱但没有安装标记，则标记为已安装
-    const hasAdmin = await adapter.prepare('SELECT 1 FROM settings WHERE key=?').get('admin.email')
-    const hasInstalled = await adapter.prepare('SELECT 1 FROM settings WHERE key=?').get('system.installed')
-
-    console.log('Existing database check:', { hasAdmin: !!hasAdmin, hasInstalled: !!hasInstalled })
-
-    if (hasAdmin && !hasInstalled) {
-      await adapter.prepare(`
+        `).run(key, value, Date.now());
+            }
+        }
+        // 对于现有的数据库，如果有管理员邮箱但没有安装标记，则标记为已安装
+        const hasAdmin = await adapter.prepare('SELECT 1 FROM settings WHERE key=?').get('admin.email');
+        const hasInstalled = await adapter.prepare('SELECT 1 FROM settings WHERE key=?').get('system.installed');
+        console.log('Existing database check:', { hasAdmin: !!hasAdmin, hasInstalled: !!hasInstalled });
+        if (hasAdmin && !hasInstalled) {
+            await adapter.prepare(`
         INSERT INTO settings (key, value, updated_at)
         VALUES (?, ?, ?)
-      `).run('system.installed', '1', Date.now())
-      console.log('Marked existing database as installed')
-    }
-
-    // 确保默认分类存在
-    const categoryCount = await adapter.prepare('SELECT COUNT(*) as c FROM categories').get() as any
-    if (categoryCount.c === 0) {
-      for (const category of DEFAULT_CATEGORIES) {
-        await adapter.prepare(`
+      `).run('system.installed', '1', Date.now());
+            console.log('Marked existing database as installed');
+        }
+        // 确保默认分类存在
+        const categoryCount = await adapter.prepare('SELECT COUNT(*) as c FROM categories').get();
+        if (categoryCount.c === 0) {
+            for (const category of DEFAULT_CATEGORIES) {
+                await adapter.prepare(`
           INSERT INTO categories (id, name, created_at)
           VALUES (?, ?, ?)
-        `).run(category.id, category.name, category.created_at())
-      }
-    }
-
-    // 检查是否需要添加默认笔记（只在没有任何笔记时添加）
-    const noteCount = await adapter.prepare('SELECT COUNT(*) as c FROM notes').get() as any
-    if (noteCount.c === 0) {
-      for (const note of DEFAULT_NOTES) {
-        await adapter.prepare(`
+        `).run(category.id, category.name, category.created_at());
+            }
+        }
+        // 检查是否需要添加默认笔记（只在没有任何笔记时添加）
+        const noteCount = await adapter.prepare('SELECT COUNT(*) as c FROM notes').get();
+        if (noteCount.c === 0) {
+            for (const note of DEFAULT_NOTES) {
+                await adapter.prepare(`
           INSERT INTO notes (id, title, content, tags, category_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          note.id,
-          note.title,
-          note.content,
-          note.tags,
-          note.category_id,
-          note.created_at(),
-          note.updated_at()
-        )
-      }
-      console.log('Added default notes to existing database')
-    }
-
-    // 检查是否需要添加默认分享（检查特定的分享ID是否存在）
-    for (const share of DEFAULT_SHARES) {
-      const existingShare = await adapter.prepare('SELECT 1 FROM shares WHERE id=?').get(share.id)
-      if (!existingShare) {
-        // 确保对应的笔记存在
-        const noteExists = await adapter.prepare('SELECT 1 FROM notes WHERE id=?').get(share.note_id)
-        if (noteExists) {
-          await adapter.prepare(`
+        `).run(note.id, note.title, note.content, note.tags, note.category_id, note.created_at(), note.updated_at());
+            }
+            console.log('Added default notes to existing database');
+        }
+        // 检查是否需要添加默认分享（检查特定的分享ID是否存在）
+        for (const share of DEFAULT_SHARES) {
+            const existingShare = await adapter.prepare('SELECT 1 FROM shares WHERE id=?').get(share.id);
+            if (!existingShare) {
+                // 确保对应的笔记存在
+                const noteExists = await adapter.prepare('SELECT 1 FROM notes WHERE id=?').get(share.note_id);
+                if (noteExists) {
+                    await adapter.prepare(`
             INSERT INTO shares (id, note_id, password, expires_at, created_at)
             VALUES (?, ?, ?, ?, ?)
-          `).run(
-            share.id,
-            share.note_id,
-            share.password,
-            share.expires_at,
-            share.created_at()
-          )
-          console.log(`Added default share: ${share.id}`)
+          `).run(share.id, share.note_id, share.password, share.expires_at, share.created_at());
+                    console.log(`Added default share: ${share.id}`);
+                }
+            }
         }
-      }
     }
-  }
-
-  // 验证最终的安装状态
-  const finalInstallStatus = await adapter.prepare('SELECT value FROM settings WHERE key=?').get('system.installed') as any
-  console.log('Final install status in DB:', finalInstallStatus?.value)
+    // 验证最终的安装状态
+    const finalInstallStatus = await adapter.prepare('SELECT value FROM settings WHERE key=?').get('system.installed');
+    console.log('Final install status in DB:', finalInstallStatus?.value);
 }
-
 /**
  * 执行数据库schema初始化
  * @param adapter 数据库适配器
  */
-export async function executeSchema(adapter: any): Promise<void> {
-  // 分别执行每个CREATE TABLE语句
-  const statements = DATABASE_SCHEMA.split(';').filter(stmt => stmt.trim())
-  for (const stmt of statements) {
-    if (stmt.trim()) {
-      if (adapter.exec) {
-        // SQLite adapter
-        adapter.exec(stmt)
-      } else {
-        // D1 adapter
-        await adapter.prepare(stmt).run()
-      }
+export async function executeSchema(adapter) {
+    // 分别执行每个CREATE TABLE语句
+    const statements = DATABASE_SCHEMA.split(';').filter(stmt => stmt.trim());
+    for (const stmt of statements) {
+        if (stmt.trim()) {
+            if (adapter.exec) {
+                // SQLite adapter
+                adapter.exec(stmt);
+            }
+            else {
+                // D1 adapter
+                await adapter.prepare(stmt).run();
+            }
+        }
     }
-  }
 }
+//# sourceMappingURL=schema.js.map

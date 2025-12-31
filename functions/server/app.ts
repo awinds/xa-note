@@ -843,6 +843,42 @@ app.get('/api/settings', requireAuth, async (c) => {
   }
 })
 
+// 更新设置（需要认证）
+app.put('/api/settings', requireAuth, async (c) => {
+  const db = c.get('db') as any
+  const updates = await c.req.json()
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (key === 'admin.password') {
+      const hash = await hashPassword(String(value))
+      await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run('admin.password_hash', hash, Date.now())
+      continue
+    }
+
+    await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), Date.now())
+  }
+
+  return c.json({ ok: true })
+})
+
+// 更新设置（POST方法，与PUT相同）
+app.post('/api/settings', requireAuth, async (c) => {
+  const db = c.get('db') as any
+  const updates = await c.req.json()
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (key === 'admin.password') {
+      const hash = await hashPassword(String(value))
+      await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run('admin.password_hash', hash, Date.now())
+      continue
+    }
+
+    await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), Date.now())
+  }
+
+  return c.json({ ok: true })
+})
+
 // Categories
 app.get('/api/categories', async (c) => {
   const db = c.get('db') as any
@@ -1068,7 +1104,6 @@ app.post('/api/share/:code/view', async (c) => {
   return c.json(note)
 })
 
-
 // Captcha API
 app.get('/api/captcha', (c) => {
   // Simple SVG captcha implementation for Cloudflare Pages
@@ -1093,24 +1128,6 @@ app.get('/api/captcha', (c) => {
   })
 
   return c.json({ svg })
-})
-
-// Settings PUT method
-app.put('/api/settings', requireAuth, async (c) => {
-  const db = c.get('db') as any
-  const updates = await c.req.json()
-
-  for (const [key, value] of Object.entries(updates)) {
-    if (key === 'admin.password') {
-      const hash = await hashPassword(String(value))
-      await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run('admin.password_hash', hash, Date.now())
-      continue
-    }
-
-    await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), Date.now())
-  }
-
-  return c.json({ ok: true })
 })
 
 // GitHub OAuth debug endpoint
@@ -1331,6 +1348,5 @@ app.get('/api/debug/env', (c) => {
     }
   })
 })
-
 
 export default app

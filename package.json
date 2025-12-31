@@ -4,8 +4,9 @@
   "description": "XA Note - Cloudflare Pages Deployment",
   "type": "module",
   "scripts": {
-    "build": "echo 'Using pre-built files'",
-    "pages:build": "echo 'Using pre-built files'"
+    "postinstall": "echo 'Dependencies installed for Cloudflare Pages'",
+    "build": "node build.js",
+    "check-deps": "node build.js"
   },
   "dependencies": {
     "hono": "^4.3.1",

@@ -824,6 +824,25 @@ function getDefaultValue(key: string): string {
   return defaults[key] || ''
 }
 
+// 获取所有设置（需要认证）
+app.get('/api/settings', requireAuth, async (c) => {
+  const db = c.get('db') as any
+  
+  try {
+    const rows = await db.prepare('SELECT key, value FROM settings').all()
+    const result: any = {}
+    
+    for (const row of rows) {
+      result[row.key] = row.value
+    }
+    
+    return c.json(result)
+  } catch (error) {
+    console.error('Error fetching settings:', error)
+    return c.json({ error: 'Failed to fetch settings' }, 500)
+  }
+})
+
 // Categories
 app.get('/api/categories', async (c) => {
   const db = c.get('db') as any

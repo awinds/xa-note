@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "postinstall": "echo 'Dependencies installed for Cloudflare Pages'",
-    "build": "node build.js",
-    "check-deps": "node build.js"
+    "build": "echo 'Using pre-built files - no build needed'"
   },
   "dependencies": {
     "hono": "^4.3.1",

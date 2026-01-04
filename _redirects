@@ -1,1 +1,16 @@
+# Static assets should be served directly
+/assets/*  /assets/:splat  200
+/favicon*  /favicon:splat  200
+/logo.png  /logo.png      200
+/robots.txt  /robots.txt  200
+/sitemap.xml  /sitemap.xml  200
+/manifest.json  /manifest.json  200
+/apple-touch-icon.png  /apple-touch-icon.png  200
+/browserconfig.xml  /browserconfig.xml  200
+/twitter-image.png  /twitter-image.png  200
+
+# API routes should go to functions
+/api/*  /api/:splat  200
+
+# All other routes should serve the SPA
 /*    /index.html   200

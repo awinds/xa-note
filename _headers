@@ -1,0 +1,53 @@
+# Set security headers for all pages
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  X-XSS-Protection: 1; mode=block
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# Set correct MIME types for static assets
+/assets/*.js
+  Content-Type: application/javascript
+
+/assets/*.css
+  Content-Type: text/css
+
+/assets/*.woff2
+  Content-Type: font/woff2
+
+/assets/*.woff
+  Content-Type: font/woff
+
+/assets/*.ttf
+  Content-Type: font/ttf
+
+/assets/*.png
+  Content-Type: image/png
+
+/assets/*.jpg
+  Content-Type: image/jpeg
+
+/assets/*.jpeg
+  Content-Type: image/jpeg
+
+/assets/*.gif
+  Content-Type: image/gif
+
+/assets/*.svg
+  Content-Type: image/svg+xml
+
+# Favicon and other static files
+/favicon.ico
+  Content-Type: image/x-icon
+
+/favicon*.png
+  Content-Type: image/png
+
+/manifest.json
+  Content-Type: application/json
+
+/robots.txt
+  Content-Type: text/plain
+
+/sitemap.xml
+  Content-Type: application/xml

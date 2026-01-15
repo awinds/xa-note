@@ -62,7 +62,7 @@ wrangler d1 create xa-note-db
 ```
 
 #### Step 3: Import Database Schema
-Manually copy and paste the contents of `d1-init.sql` into the D1 console,
+Manually copy and paste the contents of `d1-init.sql` (*6 tables*) into the D1 console,
 
 *Or* import via CLI:
 ```bash

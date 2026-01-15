@@ -60,7 +60,7 @@ wrangler d1 create xa-note-db
 ```
 
 #### 步骤 3: 导入数据表结构
-手动复制 `d1-init.sql` 在 D1 数据库控制台导入 
+手动复制 `d1-init.sql` (*6张表*) 在 D1 数据库控制台导入 
 
 *或* 脚本导入：
 ```bash

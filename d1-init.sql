@@ -1,6 +1,4 @@
 -- XA Note D1 Database Schema
--- 只包含表结构，不包含初始数据
--- 初始数据在安装过程中通过 /api/install 接口写入
 
 -- Create settings table
 CREATE TABLE IF NOT EXISTS settings (
